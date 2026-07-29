@@ -15,27 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout fermipy
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
           fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
-      #- name: Set up Python
-      #  uses: actions/setup-python@v5
-      #  with:
-      #    python-version: 3.11
       - name: Checkout fermipy-extra
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: fermiPy/fermipy-extra
           path: fermipy-extra
       - name: Setup environment
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           activate-environment: fermipy
           auto-activate-base: false
           architecture: "x64"
           miniforge-version: latest
-          python-version: 3.11
+          python-version: 3.12
           environment-file: environment.yml
       - name: Install additional packages
         shell: bash -l {0}
