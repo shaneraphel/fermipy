@@ -614,8 +614,16 @@ class SourceFind(object):
         skydir = kwargs.pop('skydir', self.roi[name].skydir)
         scan_cdelt = kwargs.pop('scan_cdelt', 0.02)
         nstep = kwargs.pop('nstep', 5)
-        use_cache = kwargs.get('use_cache', True)
-        use_pylike = kwargs.get('use_pylike', False)
+        # NOTE: use_pylike=False relies on overwriting a source's map
+        # in place via setSourceMapImage.  With recent Fermi
+        # ScienceTools (>= 2.4) that in-place update is silently
+        # discarded the first time the model is re-synced during a
+        # likelihood optimization, making this scan insensitive to
+        # position once _fit() is called below (same issue fixed in
+        # extension.py's _scan_extension_fast).  Always recreate the
+        # source instead (use_pylike=True) since this loop always
+        # re-fits.
+        use_pylike = True
         optimizer = kwargs.get('optimizer', {})
 
         # Fit without source
@@ -630,9 +638,6 @@ class SourceFind(object):
                                  frame=wcs_utils.coordsys_to_frame(wcs_utils.get_coordsys(self.geom.wcs)))
 
         src = self.roi.copy_source(name)
-
-        if use_cache and not use_pylike:
-            self._create_srcmap_cache(src.name, src)
 
         coord = MapCoord.create(lnlmap.geom.get_coord().flat,
                                 frame=lnlmap.geom.frame)

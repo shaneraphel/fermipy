@@ -220,7 +220,7 @@ class ExtensionFit(object):
         self.set_source_morphology(name, spatial_model=spatial_model,
                                    spatial_pars={'ra': o['ra'], 'dec': o['dec'],
                                                  'SpatialWidth': o['ext']},
-                                   use_pylike=False,
+                                   use_pylike=True,
                                    psf_scale_fn=psf_scale_fn)
 
         # Perform scan over width parameter
@@ -233,7 +233,7 @@ class ExtensionFit(object):
         self.set_source_morphology(name, spatial_model=spatial_model,
                                    spatial_pars={'ra': o['ra'], 'dec': o['dec'],
                                                  'SpatialWidth': o['ext']},
-                                   use_pylike=False,
+                                   use_pylike=True,
                                    psf_scale_fn=psf_scale_fn)
 
         fit_output = self._fit(loglevel=logging.DEBUG, update=False,
@@ -287,7 +287,7 @@ class ExtensionFit(object):
         self.logger.info('Testing point-source model.')
         # Test point-source hypothesis
         self.set_source_morphology(name, spatial_model='PointSource',
-                                   use_pylike=False,
+                                   use_pylike=True,
                                    psf_scale_fn=psf_scale_fn)
 
         # Fit a point-source
@@ -479,10 +479,18 @@ class ExtensionFit(object):
         for i, w in enumerate(width):
 
             spatial_pars['SpatialWidth'] = max(w, 0.00316)
+            # NOTE: With recent versions of the Fermi ScienceTools
+            # (>= 2.4) the in-place source map update performed by
+            # use_pylike=False is silently discarded the first time
+            # the source's model is re-synced during a likelihood
+            # optimization (its SourceMap "model_is_local" flag gets
+            # reset), which makes the likelihood scan insensitive to
+            # width whenever reoptimize=True.  Recreating the source
+            # (use_pylike=True) is slower but avoids this problem.
             self.set_source_morphology(name,
                                        spatial_model=spatial_model,
                                        spatial_pars=spatial_pars,
-                                       use_pylike=False,
+                                       use_pylike=reoptimize,
                                        psf_scale_fn=psf_scale_fn)
             if reoptimize:
                 fit_output = self._fit(loglevel=logging.DEBUG, **optimizer)
@@ -490,7 +498,19 @@ class ExtensionFit(object):
             else:
                 loglike += [-self.like()]
 
-        state.restore()
+        if reoptimize:
+            # The loop above recreated the source on every iteration
+            # (use_pylike=True), which can change the internal
+            # representation of its source map (e.g. sparse vs dense).
+            # Restore the original morphology through the same
+            # add/delete-source path rather than forcing back the raw
+            # pixel array captured in `state`, which may no longer
+            # match in size and would raise in setSourceMapImage.
+            self.set_source_morphology(name, spatial_model=src['SpatialModel'],
+                                       spatial_pars=src.spatial_pars,
+                                       use_pylike=True)
+        else:
+            state.restore()
 
         return np.array(loglike)
 
@@ -518,7 +538,7 @@ class ExtensionFit(object):
             self.set_source_morphology(name,
                                        spatial_model=spatial_model,
                                        spatial_pars=spatial_pars,
-                                       use_pylike=False,
+                                       use_pylike=reoptimize,
                                        psf_scale_fn=psf_scale_fn)
 
             for j, (logemin, logemax) in enumerate(zip(np.log10(ebin_e_min),
@@ -531,7 +551,12 @@ class ExtensionFit(object):
                     loglike[j, i] = -self.like()
             self.set_energy_range(self.log_energies[0], self.log_energies[-1])
 
-        state.restore()
+        if reoptimize:
+            self.set_source_morphology(name, spatial_model=src['SpatialModel'],
+                                       spatial_pars=src.spatial_pars,
+                                       use_pylike=True)
+        else:
+            state.restore()
         return loglike
 
     def _scan_extension_pylike(self, name, **kwargs):
@@ -693,7 +718,7 @@ class ExtensionFit(object):
                                        spatial_model=spatial_model,
                                        spatial_pars={
                                            'SpatialWidth': max(o.ext, 0.00316)},
-                                       use_pylike=False)
+                                       use_pylike=True)
             t0.stop()
 
             t1.start()
@@ -704,7 +729,7 @@ class ExtensionFit(object):
 
             fit_pos0, fit_pos1 = self._fit_position(name, nstep=nstep,
                                                     dtheta_max=dtheta_max,
-                                                    zmin=-3.0, use_pylike=False)
+                                                    zmin=-3.0)
             o.update(fit_pos0)
             t1.stop()
 
@@ -712,7 +737,7 @@ class ExtensionFit(object):
                                        spatial_model=spatial_model,
                                        spatial_pars={'RA': o['ra'],
                                                      'DEC': o['dec']},
-                                       use_pylike=False)
+                                       use_pylike=True)
 
             self.logger.debug('Elapsed Time: %.2f %.2f',
                               t0.elapsed_time, t1.elapsed_time)
