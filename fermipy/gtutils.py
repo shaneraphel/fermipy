@@ -1,7 +1,8 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 from __future__ import absolute_import, division, print_function
 import copy
-from functools import wraps
+import re
+from functools import wraps, lru_cache
 import numpy as np
 import pyLikelihood as pyLike
 from SrcModel import SourceModel
@@ -468,6 +469,72 @@ class FreeParameterState(object):
 
     def restore(self):
         self._gta.set_free_param_vector(self._free)
+
+
+# Fermitools >= this version includes the fix (upstream commit
+# restoring the m_dataCleared reset dropped by
+# fermi-lat/Likelihood@9f574d768) for a SourceMap caching bug that
+# silently discards BinnedLikelihood.setSourceMapImage() updates the
+# next time the model is fit, for any source that has ever passed
+# through the fixed-source bookkeeping (e.g. via
+# GTAnalysis.optimize()).  Below this version, extension() and
+# localize() must fall back to recreating the source
+# (use_pylike=True) instead of updating its map in place.
+FERMITOOLS_SRCMAP_FIX_VERSION = (2, 5, 3)
+
+
+def _parse_version_tuple(version_str):
+    """Parse a dotted version string (e.g. '2.5.3') into a tuple of
+    ints.  Returns None if it does not look like a simple X.Y.Z
+    version (e.g. empty, 'unknown', or a git-describe style string).
+    """
+    if not version_str:
+        return None
+    m = re.match(r'^(\d+)\.(\d+)\.(\d+)', str(version_str))
+    if not m:
+        return None
+    return tuple(int(x) for x in m.groups())
+
+
+@lru_cache(maxsize=1)
+def fermitools_srcmap_update_is_broken():
+    """Return True if the installed Fermi ScienceTools has the
+    SourceMap caching bug that breaks
+    BinnedLikelihood.setSourceMapImage() (fixed upstream in
+    fermitools 2.5.3).  If the installed version cannot be determined
+    this fails safe and assumes the bug is present.
+    """
+    import fermipy
+    version = _parse_version_tuple(fermipy.get_st_version())
+    if version is None:
+        return True
+    return version < FERMITOOLS_SRCMAP_FIX_VERSION
+
+
+_warned_srcmap_bug = False
+
+
+def use_pylike_srcmap_workaround(logger=None):
+    """Return True if callers should force use_pylike=True (recreate
+    the source) instead of the fast in-place
+    setSourceMapImage()-based update, because the installed Fermi
+    ScienceTools has the SourceMap caching bug described above.  Logs
+    a one-time warning via ``logger`` (if given) the first time the
+    workaround is actually needed.
+    """
+    broken = fermitools_srcmap_update_is_broken()
+    global _warned_srcmap_bug
+    if broken and logger is not None and not _warned_srcmap_bug:
+        logger.warning(
+            'Detected a Fermi ScienceTools version older than %s with a known '
+            'SourceMap caching bug (fermi-lat/Likelihood, fixed in fermitools '
+            '2.5.3) that silently discards BinnedLikelihood.setSourceMapImage() '
+            'updates on the next fit.  Falling back to the slower '
+            'source-recreation method (use_pylike=True) in extension() and '
+            'localize().  Upgrade fermitools to >= 2.5.3 to restore the faster '
+            'method.', '.'.join(str(x) for x in FERMITOOLS_SRCMAP_FIX_VERSION))
+        _warned_srcmap_bug = True
+    return broken
 
 
 class SourceMapState(object):

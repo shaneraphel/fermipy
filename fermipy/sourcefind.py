@@ -19,7 +19,7 @@ from fermipy.sourcefind_utils import fit_error_ellipse
 from fermipy.sourcefind_utils import find_peaks
 from fermipy.skymap import Map
 from fermipy.config import ConfigSchema
-from fermipy.gtutils import FreeParameterState, SourceMapState
+from fermipy.gtutils import FreeParameterState, SourceMapState, use_pylike_srcmap_workaround
 from fermipy.timing import Timer
 from fermipy.model_utils import get_function_norm_par_name
 from LikelihoodState import LikelihoodState
@@ -615,15 +615,15 @@ class SourceFind(object):
         scan_cdelt = kwargs.pop('scan_cdelt', 0.02)
         nstep = kwargs.pop('nstep', 5)
         # NOTE: use_pylike=False relies on overwriting a source's map
-        # in place via setSourceMapImage.  With recent Fermi
-        # ScienceTools (>= 2.4) that in-place update is silently
-        # discarded the first time the model is re-synced during a
-        # likelihood optimization, making this scan insensitive to
-        # position once _fit() is called below (same issue fixed in
-        # extension.py's _scan_extension_fast).  Always recreate the
-        # source instead (use_pylike=True) since this loop always
-        # re-fits.
-        use_pylike = True
+        # in place via setSourceMapImage.  With Fermi ScienceTools
+        # < 2.5.3 that in-place update is silently discarded the first
+        # time the model is re-synced during a likelihood
+        # optimization, making this scan insensitive to position once
+        # _fit() is called below (same issue fixed in extension.py's
+        # _scan_extension_fast).  This loop always re-fits, so recreate
+        # the source instead (use_pylike=True) whenever the installed
+        # ScienceTools has the bug.
+        use_pylike = use_pylike_srcmap_workaround(self.logger)
         optimizer = kwargs.get('optimizer', {})
 
         # Fit without source
