@@ -6,12 +6,13 @@ Changelog
 This page is a changelog for releases of Fermipy.  You can also browse
 releases on `Github <https://github.com/fermiPy/fermipy/releases>`_.
 
-1.4.3 (07/29/2026)
+1.4.3 (07/31/2026)
 ------------------
+* Fixed incorrect extension()/localize() results caused by a fermitools SourceMap caching bug (fixed upstream in fermitools 2.5.3).
 * Refactored deprecated numpy.core.defchararray methods.
-* Upgraded codebase to support python 3.12, numpy 2, astropy 7 and fermitools 2.5.2.
-* Deprecated support for python 3.9.
-* Added testing and release for ubuntu-24.04-arm.
+* Upgraded codebase to support python 3.12, numpy 2, astropy 7 and fermitools 2.5.3.
+* Deprecated support and testing for python 3.9.
+* Added testing for ubuntu-24.04-arm.
 
 1.4.2 (05/15/2026)
 ------------------
