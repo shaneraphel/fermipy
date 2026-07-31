@@ -32,7 +32,7 @@ jobs:
           architecture: "x64"
           miniforge-version: latest
           python-version: 3.12
-          environment-file: environment.yml
+          environment-file: environment-dev.yml
       - name: Install additional packages
         shell: bash -l {0}
         run: |
