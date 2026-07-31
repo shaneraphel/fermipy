@@ -13,7 +13,7 @@ import fermipy.config
 from fermipy import utils
 from fermipy import defaults
 from fermipy.config import ConfigSchema
-from fermipy.gtutils import SourceMapState, FreeParameterState
+from fermipy.gtutils import SourceMapState, FreeParameterState, use_pylike_srcmap_workaround
 from fermipy.timing import Timer
 from fermipy.data_struct import MutableNamedTuple
 from fermipy import fits_utils
@@ -220,7 +220,7 @@ class ExtensionFit(object):
         self.set_source_morphology(name, spatial_model=spatial_model,
                                    spatial_pars={'ra': o['ra'], 'dec': o['dec'],
                                                  'SpatialWidth': o['ext']},
-                                   use_pylike=False,
+                                   use_pylike=use_pylike_srcmap_workaround(self.logger),
                                    psf_scale_fn=psf_scale_fn)
 
         # Perform scan over width parameter
@@ -233,7 +233,7 @@ class ExtensionFit(object):
         self.set_source_morphology(name, spatial_model=spatial_model,
                                    spatial_pars={'ra': o['ra'], 'dec': o['dec'],
                                                  'SpatialWidth': o['ext']},
-                                   use_pylike=False,
+                                   use_pylike=use_pylike_srcmap_workaround(self.logger),
                                    psf_scale_fn=psf_scale_fn)
 
         fit_output = self._fit(loglevel=logging.DEBUG, update=False,
@@ -287,7 +287,7 @@ class ExtensionFit(object):
         self.logger.info('Testing point-source model.')
         # Test point-source hypothesis
         self.set_source_morphology(name, spatial_model='PointSource',
-                                   use_pylike=False,
+                                   use_pylike=use_pylike_srcmap_workaround(self.logger),
                                    psf_scale_fn=psf_scale_fn)
 
         # Fit a point-source
@@ -475,6 +475,17 @@ class ExtensionFit(object):
         src = self.roi.copy_source(name)
         spatial_pars = {'ra': skydir.ra.deg, 'dec': skydir.dec.deg}
 
+        # NOTE: With Fermi ScienceTools < 2.5.3 the in-place source
+        # map update performed by use_pylike=False is silently
+        # discarded the first time the source's model is re-synced
+        # during a likelihood optimization (see fermi-lat/Likelihood
+        # commit 9f574d768), which makes the likelihood scan
+        # insensitive to width whenever reoptimize=True.  Recreating
+        # the source (use_pylike=True) is slower but avoids this
+        # problem; only needed when we are about to reoptimize and
+        # the installed ScienceTools has the bug.
+        use_pylike = reoptimize and use_pylike_srcmap_workaround(self.logger)
+
         loglike = []
         for i, w in enumerate(width):
 
@@ -482,7 +493,7 @@ class ExtensionFit(object):
             self.set_source_morphology(name,
                                        spatial_model=spatial_model,
                                        spatial_pars=spatial_pars,
-                                       use_pylike=False,
+                                       use_pylike=use_pylike,
                                        psf_scale_fn=psf_scale_fn)
             if reoptimize:
                 fit_output = self._fit(loglevel=logging.DEBUG, **optimizer)
@@ -490,7 +501,19 @@ class ExtensionFit(object):
             else:
                 loglike += [-self.like()]
 
-        state.restore()
+        if use_pylike:
+            # The loop above recreated the source on every iteration,
+            # which can change the internal representation of its
+            # source map (e.g. sparse vs dense).  Restore the original
+            # morphology through the same add/delete-source path
+            # rather than forcing back the raw pixel array captured in
+            # `state`, which may no longer match in size and would
+            # raise in setSourceMapImage.
+            self.set_source_morphology(name, spatial_model=src['SpatialModel'],
+                                       spatial_pars=src.spatial_pars,
+                                       use_pylike=True)
+        else:
+            state.restore()
 
         return np.array(loglike)
 
@@ -511,6 +534,11 @@ class ExtensionFit(object):
         src = self.roi.copy_source(name)
         spatial_pars = {'ra': skydir.ra.deg, 'dec': skydir.dec.deg}
 
+        # See the NOTE in _scan_extension_fast for why the workaround
+        # is only needed when reoptimizing on a ScienceTools with the
+        # SourceMap caching bug.
+        use_pylike = reoptimize and use_pylike_srcmap_workaround(self.logger)
+
         loglike = np.ones((len(ebin_e_max), len(width)))
         for i, w in enumerate(width):
 
@@ -518,7 +546,7 @@ class ExtensionFit(object):
             self.set_source_morphology(name,
                                        spatial_model=spatial_model,
                                        spatial_pars=spatial_pars,
-                                       use_pylike=False,
+                                       use_pylike=use_pylike,
                                        psf_scale_fn=psf_scale_fn)
 
             for j, (logemin, logemax) in enumerate(zip(np.log10(ebin_e_min),
@@ -531,7 +559,12 @@ class ExtensionFit(object):
                     loglike[j, i] = -self.like()
             self.set_energy_range(self.log_energies[0], self.log_energies[-1])
 
-        state.restore()
+        if use_pylike:
+            self.set_source_morphology(name, spatial_model=src['SpatialModel'],
+                                       spatial_pars=src.spatial_pars,
+                                       use_pylike=True)
+        else:
+            state.restore()
         return loglike
 
     def _scan_extension_pylike(self, name, **kwargs):
@@ -693,7 +726,7 @@ class ExtensionFit(object):
                                        spatial_model=spatial_model,
                                        spatial_pars={
                                            'SpatialWidth': max(o.ext, 0.00316)},
-                                       use_pylike=False)
+                                       use_pylike=use_pylike_srcmap_workaround(self.logger))
             t0.stop()
 
             t1.start()
@@ -704,7 +737,7 @@ class ExtensionFit(object):
 
             fit_pos0, fit_pos1 = self._fit_position(name, nstep=nstep,
                                                     dtheta_max=dtheta_max,
-                                                    zmin=-3.0, use_pylike=False)
+                                                    zmin=-3.0)
             o.update(fit_pos0)
             t1.stop()
 
@@ -712,7 +745,7 @@ class ExtensionFit(object):
                                        spatial_model=spatial_model,
                                        spatial_pars={'RA': o['ra'],
                                                      'DEC': o['dec']},
-                                       use_pylike=False)
+                                       use_pylike=use_pylike_srcmap_workaround(self.logger))
 
             self.logger.debug('Elapsed Time: %.2f %.2f',
                               t0.elapsed_time, t1.elapsed_time)
